@@ -134,6 +134,14 @@ The deployment is already running on `c3-docker-host`:
 Run Compose commands from the directory containing `docker-compose.yml`; otherwise Compose reports
 that it cannot find a configuration file.
 
+The Task 5 log check is a one-time command, not a process that must keep running. If the deployment
+copy of the Compose file is unavailable on the VM, `docker logs --tail=50 docker-springboot-1`
+retrieves the API container logs without changing the running services. The submitted Compose
+definition remains in `docker/docker-compose.yml`.
+
+The cache is Valkey (`valkey/valkey:8-alpine`), a Redis-compatible service. Compose calls it
+`redis`/`docker-redis-1`; Kubernetes uses the `redis` Deployment and Service.
+
 The API CORS allowlist includes the local development origin and both deployed frontend origins.
 The Docker NGINX proxy also removes the `Origin` header from same-origin `/api/` requests before
 forwarding them to the API.
