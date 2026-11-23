@@ -5,7 +5,8 @@
 | Deployment | URL | Verified result |
 |---|---|---|
 | Docker Compose | http://192.168.160.50 | Frontend HTTP 200; API reports database and cache `up` |
-| Kubernetes Gateway API | http://192.168.160.59:30080 | Gateway programmed; frontend HTTP 200; API health `status=ok`, database/cache `up` |
+| Kubernetes Helm release `projecthub`, exposed by Gateway API | http://192.168.160.59:30080 | Gateway programmed; frontend HTTP 200; API health `status=ok`, database/cache `up` |
+| Kubernetes direct frontend NodePort | http://192.168.160.59:30082 | Direct frontend Service; bypasses the Gateway |
 
 This repository deploys the provided ProjectHub source: React/Vite, Go/Gin, MongoDB, and Valkey.
 The images published to Docker Hub are `headie1/projecthub-nextjs:latest` and
@@ -42,35 +43,47 @@ $env:VM_PASSWORD = Read-Host 'VM password'
 ### Docker Compose
 
 ```mermaid
-flowchart LR
-    Browser -->|HTTP :80| NGINX
-    NGINX -->|static files| Vite["React / Vite frontend"]
-    NGINX -->|/api| API["Go / Gin API :8080"]
-    API --> MongoDB["MongoDB :27017"]
-    API --> Valkey["Valkey :6379 (optional cache)"]
-    MongoDB --> MongoVolume[(MongoDB volume)]
-    Valkey --> ValkeyVolume[(Valkey volume)]
+flowchart TD
+    User["User's browser"] -->|HTTP :80| NGINX["NGINX reverse proxy"]
+    NGINX -->|UI requests| Frontend["React / Vite frontend"]
+    NGINX -->|/api/* requests| API["Go / Gin API :8080"]
+    API -->|persistent application data| MongoDB["MongoDB :27017"]
+    MongoDB --> MongoVolume[("MongoDB volume")]
+    API -.->|optional cache| Valkey["Valkey :6379"]
+    Valkey --> ValkeyVolume[("Valkey volume")]
 ```
 
 The Compose file intentionally does not publish database or cache ports to the host. The Compose
 deployment is already verified and should not be changed as part of the remaining Kubernetes work.
+MongoDB stores persistent application data. Compose also persists Valkey's append-only data in a
+volume; Valkey remains an optional cache whose contents can be rebuilt.
 
 ### Kubernetes
 
 ```mermaid
-flowchart LR
-    Client -->|NodePort :30080| FrontSvc["Frontend Service"]
-    FrontSvc --> FrontPods["NGINX / Vite frontend pods"]
-    FrontPods -->|/api| BackendSvc["Go API Service"]
-    BackendSvc --> BackendPods["Go API pods"]
-    BackendPods --> MongoSvc["MongoDB StatefulSet"]
-    BackendPods --> RedisSvc["Valkey cache"]
-    MongoSvc --> PVC[(PersistentVolumeClaim)]
+flowchart TD
+    Client["User's browser"] -->|HTTP :30080| GatewayService["Gateway NodePort Service"]
+    Client -->|HTTP :30082 direct| FrontendService["Frontend Service"]
+    GatewayService --> NGF["NGINX Gateway Fabric"]
+    NGF --> Gateway["Gateway: projecthub-gateway"]
+    Gateway --> Route["HTTPRoute: projecthub-route"]
+    Route -->|UI and other paths| FrontendService["Frontend Service"]
+    Route -->|/api/*| APIService["Go API Service"]
+    FrontendService --> FrontendPods["Frontend pods: NGINX / Vite"]
+    APIService --> APIPods["Go API pods"]
+    APIPods -->|persistent application data| MongoService["MongoDB Service"]
+    MongoService --> MongoDB["MongoDB StatefulSet"]
+    MongoDB --> PVC[("PersistentVolumeClaim")]
+    APIPods -.->|optional cache| ValkeyService["Valkey Service"]
+    ValkeyService --> Valkey["Valkey Deployment"]
 ```
 
-Kubernetes namespace: `qt-spring-app`. The frontend NGINX configuration proxies `/api/` to the
-backend Service. MongoDB is the source of truth and uses persistent storage. Valkey is an optional
-cache of reconstructible data, so it does not need its own persistent volume.
+Kubernetes namespace: `qt-spring-app`. The Gateway's HTTPRoute sends `/api` requests directly to
+the backend Service. On the direct frontend NodePort, frontend NGINX proxies `/api/` to that Service.
+MongoDB is the source of truth and uses persistent storage. Kubernetes Valkey is an optional cache
+of reconstructible data, so it does not need its own persistent volume.
+The Helm release `projecthub` manages the application; the Gateway API provides the external
+`http://192.168.160.59:30080` entry point. The direct frontend NodePort `30082` bypasses the Gateway.
 
 ## Task 1 - Provisioning and Terraform IP discovery
 
@@ -503,8 +516,5 @@ Evidence screenshots are stored in `monitoring/`.
 
 ## Test accounts
 
-The application seeds a default admin test account on an empty database. Share its login details
-with the examiner through the approved private channel; no account password is stored in this
-repository.
-| manager | manager@qt.rw | Manager@123 |
-| member | member@qt.rw | Member@123 |
+The application seeds test accounts on an empty database. Share test login details with the
+examiner through the approved private channel; credentials are not stored in this repository.
