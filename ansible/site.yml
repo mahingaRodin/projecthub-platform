@@ -1,0 +1,197 @@
+---
+- name: Prepare all Kubernetes nodes
+  hosts: kubernetes
+  become: true
+  gather_facts: true
+  vars:
+    kubernetes_minor: "1.31"
+  tasks:
+    - name: Configure Kubernetes package repository
+      ansible.builtin.copy:
+        src: kubernetes.repo
+        dest: /etc/yum.repos.d/kubernetes.repo
+        mode: "0644"
+
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Remove swap entries
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(?!#)(.+\s+swap\s+)'
+        replace: '# \1'
+
+    - name: Load kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        persistent: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure Kubernetes sysctl values
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_set: true
+        reload: true
+      loop:
+        - { key: net.bridge.bridge-nf-call-iptables, value: "1" }
+        - { key: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { key: net.ipv4.ip_forward, value: "1" }
+
+    - name: Install containerd and runtime dependencies
+      ansible.builtin.dnf:
+        name:
+          - containerd
+          - curl
+          - iproute
+          - conntrack-tools
+          - ethtool
+          - iproute-tc
+          - containernetworking-plugins
+        state: present
+        disable_gpg_check: false
+
+    - name: Install Kubernetes components
+      ansible.builtin.dnf:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        disable_gpg_check: false
+
+    - name: Create containerd configuration directory
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        mode: "0755"
+
+    - name: Generate containerd configuration
+      ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+
+    - name: Enable SystemdCgroup
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+      notify: Restart containerd and kubelet
+
+    - name: Configure containerd CNI plugin path
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: 'bin_dir\s*=\s*"/usr/libexec/cni/?"'
+        replace: 'bin_dir = "/opt/cni/bin"'
+      notify: Restart containerd and kubelet
+
+    - name: Ensure containerd CNI plugin directory exists
+      ansible.builtin.file:
+        path: /opt/cni/bin
+        state: directory
+        mode: "0755"
+
+    - name: Check Fedora CNI plugin directory
+      ansible.builtin.stat:
+        path: /usr/libexec/cni
+      register: fedora_cni_directory
+
+    - name: Find Fedora CNI plugin binaries
+      ansible.builtin.find:
+        paths: /usr/libexec/cni
+        file_type: file
+        follow: true
+        recurse: false
+      register: fedora_cni_plugins
+      when: fedora_cni_directory.stat.isdir | default(false)
+
+    - name: Copy Fedora CNI plugin binaries to containerd path
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "/opt/cni/bin/{{ item.path | basename }}"
+        remote_src: true
+        mode: preserve
+      loop: "{{ fedora_cni_plugins.files | default([]) }}"
+      notify: Restart containerd and kubelet
+
+    - name: Verify containerd CNI plugin directory is populated
+      ansible.builtin.find:
+        paths: /opt/cni/bin
+        file_type: file
+        recurse: false
+      register: containerd_cni_plugins
+
+    - name: Require CNI plugin binaries
+      ansible.builtin.assert:
+        that:
+          - containerd_cni_plugins.matched | int > 0
+        fail_msg: "No CNI plugin binaries are available in /opt/cni/bin."
+
+    - name: Enable and start containerd
+      ansible.builtin.service:
+        name: containerd
+        enabled: true
+        state: started
+
+    - name: Enable kubelet
+      ansible.builtin.service:
+        name: kubelet
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart containerd and kubelet
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - containerd
+        - kubelet
+
+- name: Initialize control plane
+  hosts: control_plane
+  become: true
+  tasks:
+    - name: Initialize kubeadm
+      ansible.builtin.command: >
+        kubeadm init
+        --pod-network-cidr=10.244.0.0/16
+        --apiserver-advertise-address={{ ansible_default_ipv4.address }}
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Configure kubectl for the exam user
+      ansible.builtin.shell: |
+        install -d -m 0755 /home/{{ ansible_user }}/.kube
+        cp /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
+        chown -R {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube
+      changed_when: false
+
+    - name: Install Flannel CNI
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      changed_when: false
+
+    - name: Create worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+
+    - name: Store join command for workers
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: join_targets
+        join_command: "{{ join_command.stdout }}"
+      loop: "{{ groups['workers'] }}"
+
+- name: Join worker nodes
+  hosts: join_targets
+  become: true
+  tasks:
+    - name: Join Kubernetes cluster
+      ansible.builtin.command: "{{ hostvars[inventory_hostname].join_command }}"
+      args:
+        creates: /etc/kubernetes/kubelet.conf

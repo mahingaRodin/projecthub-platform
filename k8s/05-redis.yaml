@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: qt-spring-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: valkey/valkey:8-alpine
+          args: ["valkey-server", "--requirepass", "$(CACHE_PASSWORD)", "--appendonly", "no"]
+          env:
+            - name: CACHE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: CACHE_PASSWORD
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "valkey-cli -a \"$CACHE_PASSWORD\" ping | grep PONG"]
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "valkey-cli -a \"$CACHE_PASSWORD\" ping | grep PONG"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: qt-spring-app
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

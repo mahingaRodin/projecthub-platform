@@ -1,0 +1,4 @@
+proxmox_api_token_secret = "replace-with-your-proxmox-api-token-secret"
+vm_username              = "exam"
+vm_password              = "replace-with-a-strong-password"
+ssh_public_key           = ""

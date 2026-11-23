@@ -1,0 +1,12 @@
+frontend:
+  image: headie1/projecthub-nextjs:latest
+  replicas: 2
+  nodePort: 30082
+backend:
+  image: headie1/projecthub-backend:latest
+  replicas: 3
+mongodb:
+  image: mongo:4.4
+  existingClaim: mongodb-pvc
+redis:
+  image: valkey/valkey:8-alpine

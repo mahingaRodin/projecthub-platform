@@ -13,3 +13,13 @@ backend/projecthub-api
 .idea/
 .vscode/
 .DS_Store
+iac/terraform.tfstate*
+iac/.terraform/
+iac/tfplan
+iac/tfplan*
+terraform.tfvars
+*.tar.gz
+*.exe
+k8s/02-secrets.yaml
+/frontend/
+/backend/
