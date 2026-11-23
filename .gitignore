@@ -21,5 +21,3 @@ terraform.tfvars
 *.tar.gz
 *.exe
 k8s/02-secrets.yaml
-/frontend/
-/backend/
