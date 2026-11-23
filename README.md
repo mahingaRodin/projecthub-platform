@@ -11,12 +11,10 @@ This repository deploys the provided ProjectHub source: React/Vite, Go/Gin, Mong
 The images published to Docker Hub are `headie1/projecthub-nextjs:latest` and
 `headie1/projecthub-backend:latest`.
 
-**Exam brief discrepancy:** The DOCX describes MyDiary with Next.js, Spring Boot, PostgreSQL, and
-Redis, while the supplied source and verified deployments use ProjectHub with React/Vite, Go/Gin,
-MongoDB, and Valkey. The DOCX also conflicts on the VM operating system: Task 1 says Ubuntu 24.04,
-while its overview/template says Fedora 45; the deployed VMs use Fedora 45. This README documents
-the source and environment that were provided and deployed; confirm these brief/template mismatches
-with the examiner.
+**Examiner-confirmed assignment variant:** The DOCX's MyDiary/Next.js/Spring Boot/PostgreSQL/Redis
+description is a template mismatch for this candidate's assigned ProjectHub variant (React/Vite,
+Go/Gin, MongoDB, and Valkey). The supplied VMs use Fedora 45; this README documents the provided
+source and environment.
 
 ## VM inventory
 
@@ -30,8 +28,8 @@ with the examiner.
 Proxmox endpoint: `192.168.160.16:8006`; pool: `exam-c3`; clone template VMID: `9003`.
 ### Examiner VM access
 
-SSH user: `qt`. Supply the exam password to the examiner through an approved secure channel; it is
-intentionally not included in this repository.
+SSH user: `qt`. VM login credentials are supplied directly to the examiners through the approved
+private submission channel; passwords and private keys are not stored in this repository.
 
 In PowerShell, set the password only for the current session when running Ansible:
 
@@ -71,7 +69,8 @@ flowchart LR
 ```
 
 Kubernetes namespace: `qt-spring-app`. The frontend NGINX configuration proxies `/api/` to the
-backend Service. MongoDB uses persistent storage; Valkey is an optional cache.
+backend Service. MongoDB is the source of truth and uses persistent storage. Valkey is an optional
+cache of reconstructible data, so it does not need its own persistent volume.
 
 ## Task 1 - Provisioning and Terraform IP discovery
 
@@ -489,7 +488,8 @@ The Redis-stat command in `vm2-docker-host-docker-ps.png` has been redacted befo
 - Kubernetes Gateway API: `http://192.168.160.59:30080` — verified; direct frontend NodePort: `30082`.
 - Docker Hub images: `headie1/projecthub-nextjs:latest`,
   `headie1/projecthub-backend:latest`.
-- SSH user: `qt`; VM password is supplied separately through a secure channel.
+- VM credentials: supplied separately to the examiner through the approved private channel; they
+  are not stored in this repository.
 
 | VM | VMID | IP | SSH user |
 |---|---:|---|---|
@@ -503,10 +503,8 @@ Evidence screenshots are stored in `monitoring/`.
 
 ## Test accounts
 
-The application seeds these accounts on an empty database:
-
-| Role | Email | Password |
-|---|---|---|
-| admin | admin@qt.rw | Admin@123 |
+The application seeds a default admin test account on an empty database. Share its login details
+with the examiner through the approved private channel; no account password is stored in this
+repository.
 | manager | manager@qt.rw | Manager@123 |
 | member | member@qt.rw | Member@123 |
